@@ -1,0 +1,32 @@
+<resources>
+    <string name="app_name">LectureLink</string>
+    <string name="nav_schedule">Schedule</string>
+    <string name="nav_courses">Courses</string>
+    <string name="nav_reps">Directory</string>
+    <string name="nav_notices">Notices</string>
+    <string name="nav_manage">Manage</string>
+
+    <string name="role_student">Student</string>
+    <string name="role_course_rep">Course Rep</string>
+    <string name="role_lecturer">Lecturer</string>
+
+    <string name="status_scheduled">Scheduled</string>
+    <string name="status_ongoing">Live Now</string>
+    <string name="status_rescheduled">Rescheduled</string>
+    <string name="status_venue_changed">Venue Moved</string>
+    <string name="status_cancelled">Cancelled</string>
+
+    <string name="filter_all">All Days</string>
+    <string name="filter_today">Today</string>
+    <string name="search_lectures">Search course, title, or hall…</string>
+    <string name="search_courses">Search courses or codes…</string>
+    <string name="search_reps">Search course rep or lecturer…</string>
+
+    <string name="schedule_lecture">Schedule Lecture</string>
+    <string name="edit_lecture">Update Lecture</string>
+    <string name="broadcast_notice">Broadcast Urgent Notice</string>
+    <string name="reminder_set">Alarm Reminder Set</string>
+    <string name="reminder_cancelled">Reminder Removed</string>
+    <string name="empty_schedule">No lectures found for this selection</string>
+    <string name="empty_schedule_sub">Check other days or subscribe to more courses in Courses tab.</string>
+</resources>

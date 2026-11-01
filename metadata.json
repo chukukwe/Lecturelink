@@ -1,0 +1,6 @@
+{
+  "name": "LectureLink",
+  "description": "Direct, reliable lecture scheduling, real-time status updates, alarms, and course rep communication for university students and lecturers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
