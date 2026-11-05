@@ -28,4 +28,10 @@ class ExampleRobolectricTest {
     assertEquals("Live Now", LectureStatus.ONGOING.title)
     assertEquals("Monday", LectureDay.MONDAY.fullName)
   }
+
+  @Test
+  fun `launch MainActivity`() {
+    val controller = org.robolectric.Robolectric.buildActivity(MainActivity::class.java).setup()
+    org.junit.Assert.assertNotNull(controller.get())
+  }
 }

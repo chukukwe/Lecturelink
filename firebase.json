@@ -1,0 +1,8 @@
+{
+  "firestore": [
+    {
+      "database": "ai-studio-android-lecturel-3536a02a-d96a-4245-9e8a-2b67f2093923",
+      "rules": "firestore.rules"
+    }
+  ]
+}

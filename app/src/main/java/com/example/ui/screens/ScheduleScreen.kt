@@ -23,11 +23,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.EventBusy
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -42,7 +40,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -50,7 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
-import com.example.data.local.LectureEntity
+import com.example.data.firestore.FirestoreLecture
 import com.example.data.model.LectureDay
 import com.example.data.model.UserRole
 import com.example.ui.LectureLinkUiState
@@ -58,18 +55,17 @@ import com.example.ui.components.LectureCard
 import com.example.ui.components.RoleSwitchBanner
 import com.example.ui.theme.AmberRescheduled
 import com.example.ui.theme.EmeraldLive
-import com.example.ui.theme.PurpleVenue
 
 @Composable
 fun ScheduleScreen(
     uiState: LectureLinkUiState,
-    lectures: List<LectureEntity>,
+    lectures: List<FirestoreLecture>,
     onRoleSelected: (UserRole) -> Unit,
     onDaySelected: (LectureDay?) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onStatusFilterChange: (String) -> Unit,
-    onAlarmClick: (LectureEntity) -> Unit,
-    onEditLectureClick: (LectureEntity) -> Unit,
+    onAlarmClick: (FirestoreLecture) -> Unit,
+    onEditLectureClick: (FirestoreLecture) -> Unit,
     onScheduleNewClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -92,7 +88,7 @@ fun ScheduleScreen(
                 )
             }
 
-            // Hero Banner Card with visual polish
+            // Hero Banner Card
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -211,7 +207,7 @@ fun ScheduleScreen(
                 )
             }
 
-            // Day Selector Chips
+            // Days of the Week
             item {
                 Column {
                     Text(
@@ -328,7 +324,7 @@ fun ScheduleScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Try selecting another day or check enrolled courses.",
+                                text = "Try selecting another day or enroll in courses in the Courses tab.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -350,6 +346,7 @@ fun ScheduleScreen(
                     LectureCard(
                         lecture = lecture,
                         currentRole = uiState.currentRole,
+                        alarmMinutes = uiState.alarmMinutesMap[lecture.id],
                         onAlarmClick = { onAlarmClick(lecture) },
                         onEditClick = { onEditLectureClick(lecture) }
                     )
@@ -357,8 +354,8 @@ fun ScheduleScreen(
             }
         }
 
-        // Floating Action Button for Course Rep / Lecturer
-        if (uiState.currentRole == UserRole.COURSE_REP || uiState.currentRole == UserRole.LECTURER) {
+        // Floating Action Button for Lecturer / Course Rep
+        if (uiState.currentRole == UserRole.LECTURER || uiState.currentRole == UserRole.COURSE_REP) {
             ExtendedFloatingActionButton(
                 onClick = onScheduleNewClick,
                 icon = { Icon(Icons.Default.Add, contentDescription = "Schedule") },

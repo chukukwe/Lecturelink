@@ -1,0 +1,100 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role (Lecturer, Course Rep, Student) and enrolled courses",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Auth UID of the user" },
+        "displayName": { "type": "string", "description": "Display name of the user" },
+        "email": { "type": "string", "description": "Email address" },
+        "role": { "type": "string", "enum": ["Lecturer", "Course Rep", "Student"], "description": "Role determining lecture and course permissions" },
+        "enrolledCourseCodes": { "type": "array", "description": "List of course codes enrolled in" },
+        "department": { "type": "string", "description": "Academic department" },
+        "level": { "type": "string", "description": "Academic level e.g. 300 Level" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Profile update timestamp" }
+      },
+      "required": ["userId", "displayName", "email", "role"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "University course created by lecturers",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "description": "Course code e.g. CSC 301" },
+        "name": { "type": "string", "description": "Course title e.g. Operating Systems" },
+        "department": { "type": "string", "description": "Academic department" },
+        "level": { "type": "string", "description": "Level e.g. 300 Level" },
+        "creditUnits": { "type": "integer", "description": "Credit units" },
+        "lecturerId": { "type": "string", "description": "UID of the creating lecturer" },
+        "lecturerName": { "type": "string", "description": "Name of the lecturer" },
+        "courseRepId": { "type": "string", "description": "UID of assigned course rep" },
+        "courseRepName": { "type": "string", "description": "Name of assigned course rep" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "name", "department", "lecturerId", "lecturerName"]
+    },
+    "Lecture": {
+      "title": "Lecture",
+      "description": "Lecture session scheduled, updated, or cancelled by lecturer or course rep",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "courseCode": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "dayOfWeek": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "venue": { "type": "string" },
+        "originalVenue": { "type": "string" },
+        "originalTime": { "type": "string" },
+        "lecturerId": { "type": "string" },
+        "lecturerName": { "type": "string" },
+        "status": { "type": "string", "enum": ["SCHEDULED", "ONGOING", "RESCHEDULED", "VENUE_CHANGED", "CANCELLED"] },
+        "statusReason": { "type": "string" },
+        "department": { "type": "string" },
+        "level": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "courseCode", "courseTitle", "dayOfWeek", "startTime", "endTime", "venue", "lecturerName", "status"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Urgent broadcast announcement by lecturer or course rep",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "courseCode": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorRole": { "type": "string" },
+        "urgency": { "type": "string", "enum": ["URGENT", "VENUE_CHANGE", "TIME_SHIFT", "GENERAL"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "courseCode", "title", "content", "authorId", "authorName", "authorRole", "urgency"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profile with role and enrolled courses"
+    },
+    "/courses/{courseCode}": {
+      "schema": { "$ref": "#/entities/Course" },
+      "description": "University courses catalog"
+    },
+    "/lectures/{lectureId}": {
+      "schema": { "$ref": "#/entities/Lecture" },
+      "description": "Scheduled, live, and updated lectures"
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Immediate updates and broadcast notices"
+    }
+  }
+}

@@ -29,7 +29,6 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -48,18 +47,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.example.data.local.LectureEntity
+import com.example.data.firestore.FirestoreLecture
 import com.example.data.model.LectureDay
 import com.example.data.model.LectureStatus
 import com.example.data.model.UrgencyLevel
-import com.example.data.model.UserRole
 import com.example.ui.theme.RoseCancelled
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditLectureDialog(
-    lecture: LectureEntity,
+    lecture: FirestoreLecture,
     onDismiss: () -> Unit,
     onDelete: (String) -> Unit,
     onSave: (
@@ -112,8 +109,14 @@ fun EditLectureDialog(
                     expanded = statusDropdownExpanded,
                     onExpandedChange = { statusDropdownExpanded = it }
                 ) {
+                    val statusTitle = try {
+                        LectureStatus.valueOf(selectedStatus).title
+                    } catch (_: Exception) {
+                        selectedStatus
+                    }
+
                     OutlinedTextField(
-                        value = LectureStatus.valueOf(selectedStatus).title,
+                        value = statusTitle,
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Lecture Status") },
@@ -140,7 +143,6 @@ fun EditLectureDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Venue input
                 OutlinedTextField(
                     value = venueText,
                     onValueChange = { venueText = it },
@@ -151,7 +153,6 @@ fun EditLectureDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Time Inputs
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -174,11 +175,10 @@ fun EditLectureDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Reason / Note
                 OutlinedTextField(
                     value = reasonText,
                     onValueChange = { reasonText = it },
-                    label = { Text("Update Reason / Student Note") },
+                    label = { Text("Update Reason / Note") },
                     placeholder = { Text("e.g. Relocated due to AC repair") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
@@ -186,7 +186,6 @@ fun EditLectureDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Broadcast notice toggle
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -199,7 +198,7 @@ fun EditLectureDialog(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Broadcast urgent notice to all students",
+                        text = "Trigger immediate update notification to students",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium
                     )
@@ -226,7 +225,7 @@ fun EditLectureDialog(
                 },
                 modifier = Modifier.testTag("save_lecture_button")
             ) {
-                Text("Save & Apply")
+                Text("Save & Notify")
             }
         },
         dismissButton = {
@@ -237,14 +236,14 @@ fun EditLectureDialog(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete",
+                        contentDescription = "Cancel/Delete",
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Delete")
                 }
                 TextButton(onClick = onDismiss) {
-                    Text("Cancel")
+                    Text("Close")
                 }
             }
         }
@@ -263,7 +262,6 @@ fun ScheduleLectureDialog(
         endTime: String,
         venue: String,
         lecturerName: String,
-        lecturerContact: String,
         department: String,
         level: String,
         broadcast: Boolean
@@ -276,7 +274,6 @@ fun ScheduleLectureDialog(
     var endTime by remember { mutableStateOf("11:00 AM") }
     var venue by remember { mutableStateOf("LT 1, Science Complex") }
     var lecturerName by remember { mutableStateOf("Prof. Emmanuel Adeyemi") }
-    var lecturerContact by remember { mutableStateOf("e.adeyemi@uni.edu.ng") }
     var department by remember { mutableStateOf("Computer Science") }
     var level by remember { mutableStateOf("300 Level") }
     var broadcast by remember { mutableStateOf(true) }
@@ -318,7 +315,6 @@ fun ScheduleLectureDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Day Selector
                 ExposedDropdownMenuBox(
                     expanded = dayDropdownExpanded,
                     onExpandedChange = { dayDropdownExpanded = it }
@@ -402,7 +398,7 @@ fun ScheduleLectureDialog(
                     Checkbox(checked = broadcast, onCheckedChange = { broadcast = it })
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Broadcast announcement to student notice board",
+                        text = "Trigger push notification to students immediately",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -420,7 +416,6 @@ fun ScheduleLectureDialog(
                             endTime.trim(),
                             venue.trim(),
                             lecturerName.trim(),
-                            lecturerContact.trim(),
                             department.trim(),
                             level.trim(),
                             broadcast
@@ -430,7 +425,7 @@ fun ScheduleLectureDialog(
                 enabled = courseCode.isNotBlank() && courseTitle.isNotBlank(),
                 modifier = Modifier.testTag("confirm_schedule_button")
             ) {
-                Text("Schedule")
+                Text("Schedule & Notify")
             }
         },
         dismissButton = {
@@ -451,14 +446,13 @@ fun PostNoticeDialog(
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
     var selectedUrgency by remember { mutableStateOf(UrgencyLevel.URGENT) }
-
     var urgencyDropdownExpanded by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Broadcast Urgent Notice",
+                text = "Trigger Immediate Update Notice",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -470,14 +464,13 @@ fun PostNoticeDialog(
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(
-                    text = "Announcements are immediately visible on student devices with priority tagging.",
+                    text = "Broadcasted immediately to student devices with priority alert.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Urgency level
                 ExposedDropdownMenuBox(
                     expanded = urgencyDropdownExpanded,
                     onExpandedChange = { urgencyDropdownExpanded = it }
@@ -523,7 +516,7 @@ fun PostNoticeDialog(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Notice Headline") },
+                    label = { Text("Headline") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag("notice_title_input")
                 )
@@ -549,7 +542,7 @@ fun PostNoticeDialog(
                 enabled = title.isNotBlank() && content.isNotBlank(),
                 modifier = Modifier.testTag("broadcast_confirm_button")
             ) {
-                Text("Broadcast Now")
+                Text("Broadcast & Push Notify")
             }
         },
         dismissButton = {
@@ -562,16 +555,23 @@ fun PostNoticeDialog(
 
 @Composable
 fun AlarmConfigDialog(
-    lecture: LectureEntity,
+    lecture: FirestoreLecture,
+    currentMinutes: Int?,
     onDismiss: () -> Unit,
     onToggleAlarm: (isEnabled: Boolean, minutesBefore: Int, context: Context) -> Unit,
     onTriggerTestNow: (context: Context) -> Unit
 ) {
     val context = LocalContext.current
-    var isEnabled by remember { mutableStateOf(lecture.isAlarmEnabled) }
-    var selectedMinutes by remember { mutableIntStateOf(lecture.alarmMinutesBefore) }
+    var isEnabled by remember { mutableStateOf(currentMinutes != null) }
+    var selectedMinutes by remember { mutableIntStateOf(currentMinutes ?: 15) }
 
-    val options = listOf(10, 15, 30, 60)
+    // Customizable reminder offsets (e.g. 15m, 30m, 1 hour before)
+    val options = listOf(
+        15 to "15 minutes before",
+        30 to "30 minutes before",
+        60 to "1 hour before",
+        120 to "2 hours before"
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -585,7 +585,7 @@ fun AlarmConfigDialog(
         },
         title = {
             Text(
-                text = "Lecture Alarm: ${lecture.courseCode}",
+                text = "Lecture Reminder: ${lecture.courseCode}",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -600,14 +600,14 @@ fun AlarmConfigDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Toggle alarm enable
+                // Toggle reminder
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Enable Alarm Reminder",
+                        text = "Enable Lecture Reminder",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -621,14 +621,14 @@ fun AlarmConfigDialog(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "Notify me before class starts:",
+                    text = "Notify me before lecture:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                options.forEach { minutes ->
+                options.forEach { (minutes, label) ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -642,7 +642,7 @@ fun AlarmConfigDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (minutes == 60) "1 hour before start" else "$minutes minutes before start",
+                            text = label,
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (isEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                         )
@@ -651,7 +651,6 @@ fun AlarmConfigDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Test Alarm button
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -673,7 +672,7 @@ fun AlarmConfigDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Test Alarm Notification Now",
+                            text = "Test Push Notification Now",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -690,7 +689,7 @@ fun AlarmConfigDialog(
                 },
                 modifier = Modifier.testTag("save_alarm_button")
             ) {
-                Text("Save")
+                Text("Save Reminder")
             }
         },
         dismissButton = {

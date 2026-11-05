@@ -7,7 +7,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,14 +29,11 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,7 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.local.LectureEntity
+import com.example.data.firestore.FirestoreLecture
 import com.example.data.model.LectureStatus
 import com.example.data.model.UserRole
 import com.example.ui.theme.AmberContainer
@@ -61,7 +57,6 @@ import com.example.ui.theme.BlueContainer
 import com.example.ui.theme.BluePrimary
 import com.example.ui.theme.EmeraldContainer
 import com.example.ui.theme.EmeraldLive
-import com.example.ui.theme.Navy900
 import com.example.ui.theme.PurpleContainer
 import com.example.ui.theme.PurpleVenue
 import com.example.ui.theme.RoseContainer
@@ -69,8 +64,9 @@ import com.example.ui.theme.RoseCancelled
 
 @Composable
 fun LectureCard(
-    lecture: LectureEntity,
+    lecture: FirestoreLecture,
     currentRole: UserRole,
+    alarmMinutes: Int?,
     onAlarmClick: () -> Unit,
     onEditClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -186,7 +182,7 @@ fun LectureCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Time Row (Highlight reschedule if applicable)
+            // Time Row
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
@@ -233,7 +229,7 @@ fun LectureCard(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Venue Row (Highlight Venue Changed if applicable)
+            // Venue Row
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
@@ -275,7 +271,7 @@ fun LectureCard(
                 }
             }
 
-            // Status Reason Callout (for cancelled, relocated, or rescheduled lectures)
+            // Reason Note
             if (!lecture.statusReason.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Surface(
@@ -309,7 +305,7 @@ fun LectureCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Footer: Lecturer Info + Alarm toggle / Edit action
+            // Footer: Lecturer Info + Alarm Reminder / Edit Action
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -331,10 +327,11 @@ fun LectureCard(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Alarm Reminder Button
+                    // Customizable Alarm Reminder Button for Students
+                    val isAlarmSet = alarmMinutes != null
                     Surface(
                         shape = RoundedCornerShape(20.dp),
-                        color = if (lecture.isAlarmEnabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        color = if (isAlarmSet) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier
                             .clip(RoundedCornerShape(20.dp))
                             .clickable(onClick = onAlarmClick)
@@ -345,23 +342,23 @@ fun LectureCard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = if (lecture.isAlarmEnabled) Icons.Default.Alarm else Icons.Default.AlarmOff,
+                                imageVector = if (isAlarmSet) Icons.Default.Alarm else Icons.Default.AlarmOff,
                                 contentDescription = "Alarm reminder",
-                                tint = if (lecture.isAlarmEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = if (isAlarmSet) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (lecture.isAlarmEnabled) "${lecture.alarmMinutesBefore}m before" else "Set Alarm",
+                                text = if (isAlarmSet) "${alarmMinutes}m before" else "Set Reminder",
                                 style = MaterialTheme.typography.labelSmall,
-                                fontWeight = if (lecture.isAlarmEnabled) FontWeight.Bold else FontWeight.Normal,
-                                color = if (lecture.isAlarmEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                fontWeight = if (isAlarmSet) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isAlarmSet) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
 
-                    // Rep / Lecturer Edit Action
-                    if (currentRole == UserRole.COURSE_REP || currentRole == UserRole.LECTURER) {
+                    // Authorized Role: Lecturer / Course Rep can edit/reschedule/cancel
+                    if (currentRole == UserRole.LECTURER || currentRole == UserRole.COURSE_REP) {
                         Spacer(modifier = Modifier.width(8.dp))
                         IconButton(
                             onClick = onEditClick,

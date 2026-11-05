@@ -4,17 +4,19 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.local.AnnouncementEntity
-import com.example.data.local.CourseEntity
-import com.example.data.local.DirectoryContactEntity
-import com.example.data.local.LectureEntity
-import com.example.data.local.LectureLinkDatabase
+import com.example.auth.AuthManager
+import com.example.data.firestore.FirestoreAnnouncement
+import com.example.data.firestore.FirestoreCourse
+import com.example.data.firestore.FirestoreLecture
+import com.example.data.firestore.FirestoreLectureRepository
+import com.example.data.firestore.UserProfile
 import com.example.data.model.LectureDay
 import com.example.data.model.LectureStatus
 import com.example.data.model.UrgencyLevel
 import com.example.data.model.UserRole
-import com.example.data.repository.LectureRepository
 import com.example.notification.LectureAlarmManager
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -25,64 +27,96 @@ import kotlinx.coroutines.launch
 
 data class LectureLinkUiState(
     val currentRole: UserRole = UserRole.STUDENT,
-    val selectedDay: LectureDay? = LectureDay.MONDAY, // Default to Monday
+    val selectedDay: LectureDay? = LectureDay.MONDAY,
     val searchQuery: String = "",
     val statusFilter: String = "ALL", // ALL, LIVE, ALTERED, SCHEDULED
     val activeDepartmentFilter: String = "All Departments",
-    val userMessage: String? = null
+    val userMessage: String? = null,
+    val enrolledCourseCodes: Set<String> = emptySet(),
+    val alarmMinutesMap: Map<String, Int> = emptyMap() // Map of lectureId to minutesBefore (e.g. 15, 60)
 )
 
 class LectureLinkViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: LectureRepository
+    private val repository = FirestoreLectureRepository(application)
 
     private val _uiState = MutableStateFlow(LectureLinkUiState())
     val uiState: StateFlow<LectureLinkUiState> = _uiState.asStateFlow()
 
     // Dialog & sheet states
-    private val _editingLecture = MutableStateFlow<LectureEntity?>(null)
-    val editingLecture: StateFlow<LectureEntity?> = _editingLecture.asStateFlow()
+    private val _editingLecture = MutableStateFlow<FirestoreLecture?>(null)
+    val editingLecture: StateFlow<FirestoreLecture?> = _editingLecture.asStateFlow()
 
     private val _isSchedulingNew = MutableStateFlow(false)
     val isSchedulingNew: StateFlow<Boolean> = _isSchedulingNew.asStateFlow()
 
+    private val _isCreatingCourse = MutableStateFlow(false)
+    val isCreatingCourse: StateFlow<Boolean> = _isCreatingCourse.asStateFlow()
+
     private val _isPostingNotice = MutableStateFlow(false)
     val isPostingNotice: StateFlow<Boolean> = _isPostingNotice.asStateFlow()
 
-    private val _alarmConfigLecture = MutableStateFlow<LectureEntity?>(null)
-    val alarmConfigLecture: StateFlow<LectureEntity?> = _alarmConfigLecture.asStateFlow()
+    private val _alarmConfigLecture = MutableStateFlow<FirestoreLecture?>(null)
+    val alarmConfigLecture: StateFlow<FirestoreLecture?> = _alarmConfigLecture.asStateFlow()
+
+    private val _userProfile = MutableStateFlow<UserProfile?>(null)
+    val userProfile: StateFlow<UserProfile?> = _userProfile.asStateFlow()
+
+    val courses: StateFlow<List<FirestoreCourse>> = repository.observeCourses()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val lectures: StateFlow<List<FirestoreLecture>> = repository.observeLectures()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val announcements: StateFlow<List<FirestoreAnnouncement>> = repository.observeAnnouncements()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
-        val db = LectureLinkDatabase.getDatabase(application)
-        repository = LectureRepository(db.lectureDao())
         LectureAlarmManager.initNotificationChannel(application)
 
+        // Observe auth user and load profile
         viewModelScope.launch {
-            repository.checkAndSeedDatabase()
+            AuthManager.currentUser.collect { user ->
+                if (user != null) {
+                    repository.seedInitialCloudDataIfEmpty()
+                    repository.observeUserProfile(user.uid).collect { profile ->
+                        if (profile != null) {
+                            _userProfile.value = profile
+                            val role = when (profile.role) {
+                                "Lecturer" -> UserRole.LECTURER
+                                "Course Rep" -> UserRole.COURSE_REP
+                                else -> UserRole.STUDENT
+                            }
+                            _uiState.value = _uiState.value.copy(
+                                currentRole = role,
+                                enrolledCourseCodes = profile.enrolledCourseCodes.toSet()
+                            )
+                        } else {
+                            // First time login profile
+                            val newProfile = UserProfile(
+                                userId = user.uid,
+                                displayName = user.displayName ?: "Student User",
+                                email = user.email ?: "",
+                                role = _uiState.value.currentRole.label,
+                                enrolledCourseCodes = listOf("CSC 301", "CSC 305", "SEN 302")
+                            )
+                            repository.saveUserProfile(newProfile)
+                        }
+                    }
+                }
+            }
         }
     }
 
-    val courses: StateFlow<List<CourseEntity>> = repository.allCourses
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val announcements: StateFlow<List<AnnouncementEntity>> = repository.allAnnouncements
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val directoryContacts: StateFlow<List<DirectoryContactEntity>> = repository.allContacts
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     // Filtered lectures based on enrolled courses, active day, search query, and status
-    val filteredLectures: StateFlow<List<LectureEntity>> = combine(
-        repository.allLectures,
-        courses,
+    val filteredLectures: StateFlow<List<FirestoreLecture>> = combine(
+        lectures,
         _uiState
-    ) { allLecs, courseList, state ->
-        val enrolledCourseCodes = courseList.filter { it.isEnrolled }.map { it.code }.toSet()
-
+    ) { allLecs, state ->
         allLecs.filter { lec ->
-            // Filter by enrolled courses unless user is Lecturer or Rep who sees all
+            // Student sees enrolled courses only; Lecturer and Rep see all
             val matchesEnrollment = if (state.currentRole == UserRole.STUDENT) {
-                enrolledCourseCodes.contains(lec.courseCode)
+                state.enrolledCourseCodes.isEmpty() || state.enrolledCourseCodes.contains(lec.courseCode)
             } else {
                 true
             }
@@ -104,11 +138,9 @@ class LectureLinkViewModel(application: Application) : AndroidViewModel(applicat
             }
 
             val matchesStatus = when (state.statusFilter) {
-                "LIVE" -> lec.status == LectureStatus.ONGOING.name
-                "ALTERED" -> lec.status == LectureStatus.VENUE_CHANGED.name ||
-                             lec.status == LectureStatus.RESCHEDULED.name ||
-                             lec.status == LectureStatus.CANCELLED.name
-                "SCHEDULED" -> lec.status == LectureStatus.SCHEDULED.name
+                "LIVE" -> lec.status == "ONGOING"
+                "ALTERED" -> lec.status == "VENUE_CHANGED" || lec.status == "RESCHEDULED" || lec.status == "CANCELLED"
+                "SCHEDULED" -> lec.status == "SCHEDULED"
                 else -> true
             }
 
@@ -117,10 +149,18 @@ class LectureLinkViewModel(application: Application) : AndroidViewModel(applicat
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun switchRole(newRole: UserRole) {
-        _uiState.value = _uiState.value.copy(
-            currentRole = newRole,
-            userMessage = "Switched to ${newRole.badgeTitle}"
-        )
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                currentRole = newRole,
+                userMessage = "Switched to ${newRole.badgeTitle}"
+            )
+            val currentUid = Firebase.auth.currentUser?.uid
+            if (currentUid != null) {
+                _userProfile.value?.let { prof ->
+                    repository.saveUserProfile(prof.copy(role = newRole.label))
+                }
+            }
+        }
     }
 
     fun selectDay(day: LectureDay?) {
@@ -135,11 +175,7 @@ class LectureLinkViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.value = _uiState.value.copy(statusFilter = filter)
     }
 
-    fun setDepartmentFilter(dept: String) {
-        _uiState.value = _uiState.value.copy(activeDepartmentFilter = dept)
-    }
-
-    fun openEditLecture(lecture: LectureEntity) {
+    fun openEditLecture(lecture: FirestoreLecture) {
         _editingLecture.value = lecture
     }
 
@@ -155,6 +191,14 @@ class LectureLinkViewModel(application: Application) : AndroidViewModel(applicat
         _isSchedulingNew.value = false
     }
 
+    fun openCreateCourse() {
+        _isCreatingCourse.value = true
+    }
+
+    fun closeCreateCourse() {
+        _isCreatingCourse.value = false
+    }
+
     fun openPostNotice() {
         _isPostingNotice.value = true
     }
@@ -163,7 +207,7 @@ class LectureLinkViewModel(application: Application) : AndroidViewModel(applicat
         _isPostingNotice.value = false
     }
 
-    fun openAlarmConfig(lecture: LectureEntity) {
+    fun openAlarmConfig(lecture: FirestoreLecture) {
         _alarmConfigLecture.value = lecture
     }
 
@@ -171,42 +215,93 @@ class LectureLinkViewModel(application: Application) : AndroidViewModel(applicat
         _alarmConfigLecture.value = null
     }
 
-    fun toggleAlarmSetting(lecture: LectureEntity, isEnabled: Boolean, minutesBefore: Int, context: Context) {
-        viewModelScope.launch {
-            repository.toggleAlarm(lecture.id, isEnabled, minutesBefore)
-            if (isEnabled) {
-                _uiState.value = _uiState.value.copy(
-                    userMessage = "Alarm set: ${lecture.courseCode} ($minutesBefore mins before start)"
-                )
-            } else {
-                _uiState.value = _uiState.value.copy(
-                    userMessage = "Alarm disabled for ${lecture.courseCode}"
-                )
-            }
+    fun setLectureAlarm(lecture: FirestoreLecture, isEnabled: Boolean, minutesBefore: Int, context: Context) {
+        val currentMap = _uiState.value.alarmMinutesMap.toMutableMap()
+        if (isEnabled) {
+            currentMap[lecture.id] = minutesBefore
+            _uiState.value = _uiState.value.copy(
+                alarmMinutesMap = currentMap,
+                userMessage = "Reminder alarm set: ${lecture.courseCode} ($minutesBefore min before start)"
+            )
+        } else {
+            currentMap.remove(lecture.id)
+            _uiState.value = _uiState.value.copy(
+                alarmMinutesMap = currentMap,
+                userMessage = "Alarm disabled for ${lecture.courseCode}"
+            )
         }
     }
 
-    fun testTriggerAlarmNow(lecture: LectureEntity, context: Context) {
+    fun testTriggerAlarmNow(lecture: FirestoreLecture, context: Context) {
+        val minutes = _uiState.value.alarmMinutesMap[lecture.id] ?: 15
         LectureAlarmManager.triggerLectureNotification(
             context = context,
             notificationId = lecture.id.hashCode(),
             courseCode = lecture.courseCode,
             title = lecture.courseTitle,
-            message = "Reminder: Starting in ${lecture.alarmMinutesBefore} mins (${lecture.startTime})",
+            message = "Reminder: Starting in $minutes mins (${lecture.startTime})",
             venue = lecture.venue
         )
         _uiState.value = _uiState.value.copy(
-            userMessage = "Test alarm triggered for ${lecture.courseCode}!"
+            userMessage = "Notification triggered for ${lecture.courseCode}!"
         )
     }
 
-    fun toggleCourseEnrollment(course: CourseEntity) {
+    fun toggleCourseEnrollment(courseCode: String) {
+        val uid = Firebase.auth.currentUser?.uid ?: return
+        val currentEnrolled = _uiState.value.enrolledCourseCodes.toMutableSet()
+        val isCurrentlyEnrolled = currentEnrolled.contains(courseCode)
         viewModelScope.launch {
-            val newStatus = !course.isEnrolled
-            repository.toggleCourseEnrollment(course.code, newStatus)
-            _uiState.value = _uiState.value.copy(
-                userMessage = if (newStatus) "Enrolled in ${course.code}. Timetable updated!" else "Unenrolled from ${course.code}"
-            )
+            try {
+                if (isCurrentlyEnrolled) {
+                    currentEnrolled.remove(courseCode)
+                    repository.enrollInCourse(uid, courseCode, false)
+                    _uiState.value = _uiState.value.copy(
+                        enrolledCourseCodes = currentEnrolled,
+                        userMessage = "Unenrolled from $courseCode"
+                    )
+                } else {
+                    currentEnrolled.add(courseCode)
+                    repository.enrollInCourse(uid, courseCode, true)
+                    _uiState.value = _uiState.value.copy(
+                        enrolledCourseCodes = currentEnrolled,
+                        userMessage = "Enrolled in $courseCode! Timetable synced."
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(userMessage = "Failed to update enrollment: ${e.message}")
+            }
+        }
+    }
+
+    fun createNewCourse(
+        code: String,
+        name: String,
+        department: String,
+        level: String,
+        creditUnits: Long,
+        courseRepName: String
+    ) {
+        viewModelScope.launch {
+            try {
+                val lecturerName = Firebase.auth.currentUser?.displayName ?: "Lecturer"
+                val course = FirestoreCourse(
+                    code = code,
+                    name = name,
+                    department = department,
+                    level = level,
+                    creditUnits = creditUnits,
+                    lecturerId = Firebase.auth.currentUser?.uid ?: "",
+                    lecturerName = lecturerName,
+                    courseRepId = "",
+                    courseRepName = courseRepName
+                )
+                repository.createCourse(course)
+                closeCreateCourse()
+                _uiState.value = _uiState.value.copy(userMessage = "Course $code successfully created!")
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(userMessage = "Error creating course: ${e.message}")
+            }
         }
     }
 
@@ -220,33 +315,80 @@ class LectureLinkViewModel(application: Application) : AndroidViewModel(applicat
         endTime: String,
         origTime: String?,
         broadcast: Boolean,
-        courseCode: String
+        courseCode: String,
+        context: Context
     ) {
         viewModelScope.launch {
-            val role = _uiState.value.currentRole
-            val author = when (role) {
-                UserRole.LECTURER -> "Lecturer Portal"
-                UserRole.COURSE_REP -> "Class Rep Desk"
-                UserRole.STUDENT -> "Student Member"
+            try {
+                val existing = lectures.value.firstOrNull { it.id == id }
+                val updatedLecture = FirestoreLecture(
+                    id = id,
+                    courseCode = courseCode,
+                    courseTitle = existing?.courseTitle ?: "Lecture",
+                    dayOfWeek = existing?.dayOfWeek ?: "Monday",
+                    startTime = startTime,
+                    endTime = endTime,
+                    venue = venue,
+                    originalVenue = origVenue,
+                    originalTime = origTime,
+                    lecturerId = existing?.lecturerId ?: "",
+                    lecturerName = existing?.lecturerName ?: "Lecturer",
+                    status = status,
+                    statusReason = reason,
+                    department = existing?.department ?: "",
+                    level = existing?.level ?: ""
+                )
+                repository.updateLecture(updatedLecture)
+
+                if (broadcast) {
+                    val author = Firebase.auth.currentUser?.displayName ?: _uiState.value.currentRole.label
+                    val noticeTitle = when (status) {
+                        "VENUE_CHANGED" -> "Venue Moved: $courseCode"
+                        "RESCHEDULED" -> "Rescheduled: $courseCode"
+                        "CANCELLED" -> "Cancelled: $courseCode"
+                        "ONGOING" -> "Live Now: $courseCode"
+                        else -> "Schedule Update: $courseCode"
+                    }
+                    val content = buildString {
+                        append("Lecture for $courseCode has been updated to $status.")
+                        if (!reason.isNullOrBlank()) append("\nNote: $reason")
+                        append("\nVenue: $venue | Time: $startTime - $endTime")
+                    }
+                    val urgency = when (status) {
+                        "CANCELLED" -> "URGENT"
+                        "VENUE_CHANGED" -> "VENUE_CHANGE"
+                        "RESCHEDULED" -> "TIME_SHIFT"
+                        else -> "GENERAL"
+                    }
+                    repository.broadcastAnnouncement(
+                        FirestoreAnnouncement(
+                            id = "ann_${System.currentTimeMillis()}",
+                            courseCode = courseCode,
+                            title = noticeTitle,
+                            content = content,
+                            authorId = Firebase.auth.currentUser?.uid ?: "",
+                            authorName = author,
+                            authorRole = _uiState.value.currentRole.label,
+                            urgency = urgency
+                        )
+                    )
+
+                    // Trigger immediate push notification to device!
+                    LectureAlarmManager.triggerLectureNotification(
+                        context = context,
+                        notificationId = id.hashCode(),
+                        courseCode = courseCode,
+                        title = noticeTitle,
+                        message = "Update: $status ($venue)",
+                        venue = venue
+                    )
+                }
+
+                closeEditLecture()
+                _uiState.value = _uiState.value.copy(userMessage = "$courseCode updated successfully!")
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(userMessage = "Update failed: ${e.message}")
             }
-            repository.updateLectureDetails(
-                id = id,
-                status = status,
-                reason = reason,
-                venue = venue,
-                origVenue = origVenue,
-                startTime = startTime,
-                endTime = endTime,
-                origTime = origTime,
-                broadcastNotice = broadcast,
-                courseCode = courseCode,
-                authorName = author,
-                authorRole = role.name
-            )
-            closeEditLecture()
-            _uiState.value = _uiState.value.copy(
-                userMessage = "$courseCode updated successfully${if (broadcast) " & broadcasted!" else ""}"
-            )
         }
     }
 
@@ -258,57 +400,63 @@ class LectureLinkViewModel(application: Application) : AndroidViewModel(applicat
         endTime: String,
         venue: String,
         lecturerName: String,
-        lecturerContact: String,
         department: String,
         level: String,
-        broadcast: Boolean
+        broadcast: Boolean,
+        context: Context
     ) {
         viewModelScope.launch {
-            val newId = "lec_${System.currentTimeMillis()}"
-            val role = _uiState.value.currentRole
-            val authorName = if (role == UserRole.LECTURER) lecturerName else "Course Rep"
-            val newLecture = LectureEntity(
-                id = newId,
-                courseCode = courseCode,
-                courseTitle = courseTitle,
-                dayOfWeek = dayOfWeek,
-                startTime = startTime,
-                endTime = endTime,
-                venue = venue,
-                originalVenue = null,
-                originalTime = null,
-                lecturerName = lecturerName,
-                lecturerContact = lecturerContact,
-                courseRepName = "David Okafor",
-                status = "SCHEDULED",
-                statusReason = null,
-                department = department,
-                level = level,
-                isAlarmEnabled = true,
-                alarmMinutesBefore = 15,
-                lastUpdatedMillis = System.currentTimeMillis()
-            )
-            repository.insertLecture(newLecture)
-
-            if (broadcast) {
-                repository.createAnnouncement(
-                    AnnouncementEntity(
-                        id = "ann_${System.currentTimeMillis()}",
-                        courseCode = courseCode,
-                        title = "New Lecture Scheduled: $courseCode",
-                        content = "A new lecture for $courseTitle has been added on $dayOfWeek at $startTime in $venue.",
-                        authorName = authorName,
-                        authorRole = role.name,
-                        urgency = UrgencyLevel.GENERAL.name,
-                        timestampMillis = System.currentTimeMillis()
-                    )
+            try {
+                val newId = "lec_${System.currentTimeMillis()}"
+                val lecture = FirestoreLecture(
+                    id = newId,
+                    courseCode = courseCode,
+                    courseTitle = courseTitle,
+                    dayOfWeek = dayOfWeek,
+                    startTime = startTime,
+                    endTime = endTime,
+                    venue = venue,
+                    originalVenue = null,
+                    originalTime = null,
+                    lecturerId = Firebase.auth.currentUser?.uid ?: "",
+                    lecturerName = lecturerName,
+                    status = "SCHEDULED",
+                    statusReason = null,
+                    department = department,
+                    level = level
                 )
-            }
+                repository.createLecture(lecture)
 
-            closeScheduleNew()
-            _uiState.value = _uiState.value.copy(
-                userMessage = "New lecture $courseCode scheduled successfully!"
-            )
+                if (broadcast) {
+                    val author = Firebase.auth.currentUser?.displayName ?: "Lecturer"
+                    repository.broadcastAnnouncement(
+                        FirestoreAnnouncement(
+                            id = "ann_${System.currentTimeMillis()}",
+                            courseCode = courseCode,
+                            title = "New Lecture Scheduled: $courseCode",
+                            content = "$courseTitle scheduled on $dayOfWeek at $startTime in $venue.",
+                            authorId = Firebase.auth.currentUser?.uid ?: "",
+                            authorName = author,
+                            authorRole = _uiState.value.currentRole.label,
+                            urgency = "GENERAL"
+                        )
+                    )
+
+                    LectureAlarmManager.triggerLectureNotification(
+                        context = context,
+                        notificationId = newId.hashCode(),
+                        courseCode = courseCode,
+                        title = "New Lecture Scheduled",
+                        message = "$courseCode on $dayOfWeek at $startTime",
+                        venue = venue
+                    )
+                }
+
+                closeScheduleNew()
+                _uiState.value = _uiState.value.copy(userMessage = "Lecture $courseCode scheduled!")
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(userMessage = "Failed to schedule: ${e.message}")
+            }
         }
     }
 
@@ -316,39 +464,51 @@ class LectureLinkViewModel(application: Application) : AndroidViewModel(applicat
         courseCode: String,
         title: String,
         content: String,
-        urgency: String
+        urgency: String,
+        context: Context
     ) {
         viewModelScope.launch {
-            val role = _uiState.value.currentRole
-            val author = when (role) {
-                UserRole.LECTURER -> "Lecturer Office"
-                UserRole.COURSE_REP -> "Course Rep Desk"
-                UserRole.STUDENT -> "Student"
-            }
-            repository.createAnnouncement(
-                AnnouncementEntity(
-                    id = "ann_${System.currentTimeMillis()}",
-                    courseCode = courseCode,
-                    title = title,
-                    content = content,
-                    authorName = author,
-                    authorRole = role.name,
-                    urgency = urgency,
-                    timestampMillis = System.currentTimeMillis()
+            try {
+                val author = Firebase.auth.currentUser?.displayName ?: _uiState.value.currentRole.label
+                repository.broadcastAnnouncement(
+                    FirestoreAnnouncement(
+                        id = "ann_${System.currentTimeMillis()}",
+                        courseCode = courseCode,
+                        title = title,
+                        content = content,
+                        authorId = Firebase.auth.currentUser?.uid ?: "",
+                        authorName = author,
+                        authorRole = _uiState.value.currentRole.label,
+                        urgency = urgency
+                    )
                 )
-            )
-            closePostNotice()
-            _uiState.value = _uiState.value.copy(
-                userMessage = "Urgent notice broadcasted to all students!"
-            )
+
+                LectureAlarmManager.triggerLectureNotification(
+                    context = context,
+                    notificationId = System.currentTimeMillis().toInt(),
+                    courseCode = courseCode,
+                    title = "🚨 $title",
+                    message = content,
+                    venue = "All Enrolled Students"
+                )
+
+                closePostNotice()
+                _uiState.value = _uiState.value.copy(userMessage = "Urgent announcement broadcasted!")
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(userMessage = "Broadcast failed: ${e.message}")
+            }
         }
     }
 
     fun deleteLecture(id: String) {
         viewModelScope.launch {
-            repository.deleteLecture(id)
-            closeEditLecture()
-            _uiState.value = _uiState.value.copy(userMessage = "Lecture removed from timetable.")
+            try {
+                repository.deleteLecture(id)
+                closeEditLecture()
+                _uiState.value = _uiState.value.copy(userMessage = "Lecture removed from schedule.")
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(userMessage = "Delete failed: ${e.message}")
+            }
         }
     }
 

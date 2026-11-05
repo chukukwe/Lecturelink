@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,17 +16,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,41 +47,42 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.ExperimentalMaterial3Api
-import com.example.data.local.CourseEntity
-import com.example.ui.theme.BluePrimary
+import com.example.data.firestore.FirestoreCourse
+import com.example.data.model.UserRole
 import com.example.ui.theme.EmeraldLive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CoursesScreen(
-    courses: List<CourseEntity>,
-    onToggleEnrollment: (CourseEntity) -> Unit,
+    courses: List<FirestoreCourse>,
+    enrolledCodes: Set<String>,
+    currentRole: UserRole,
+    onToggleEnrollment: (String) -> Unit,
+    onCreateCourseClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: My Enrolled, 1: All Department Courses
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: My Courses, 1: Catalog
     var searchFilter by remember { mutableStateOf("") }
 
     val filteredList = courses.filter { course ->
-        val matchesTab = if (selectedTab == 0) course.isEnrolled else true
+        val matchesTab = if (selectedTab == 0) enrolledCodes.contains(course.code) else true
         val query = searchFilter.trim().lowercase()
         val matchesQuery = if (query.isEmpty()) {
             true
         } else {
             course.code.lowercase().contains(query) ||
-            course.title.lowercase().contains(query) ||
+            course.name.lowercase().contains(query) ||
             course.department.lowercase().contains(query)
         }
         matchesTab && matchesQuery
     }
 
-    val enrolledCount = courses.count { it.isEnrolled }
-    val totalCredits = courses.filter { it.isEnrolled }.sumOf { it.creditUnits }
+    val enrolledCount = courses.count { enrolledCodes.contains(it.code) }
+    val totalCredits = courses.filter { enrolledCodes.contains(it.code) }.sumOf { it.creditUnits }
 
     Column(
         modifier = modifier
@@ -96,40 +97,54 @@ fun CoursesScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Course Registration",
+                    text = "University Courses",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Enrolling auto-syncs your lecture timetable & alarms",
+                    text = "Enrolling auto-syncs your timetable & lecture reminders",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primaryContainer
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+            // Lecturer Action: Create New Course
+            if (currentRole == UserRole.LECTURER) {
+                Button(
+                    onClick = onCreateCourseClick,
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.testTag("create_course_button")
                 ) {
-                    Text(
-                        text = "$totalCredits Credits",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        text = "$enrolledCount Enrolled",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    Icon(Icons.Default.Add, contentDescription = "Add Course", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("New Course", fontSize = 12.sp)
+                }
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "$totalCredits Credits",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = "$enrolledCount Enrolled",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
                 }
             }
         }
@@ -146,17 +161,17 @@ fun CoursesScreen(
             Tab(
                 selected = selectedTab == 1,
                 onClick = { selectedTab = 1 },
-                text = { Text("Department Catalog (${courses.size})") }
+                text = { Text("University Catalog (${courses.size})") }
             )
         }
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Search box
+        // Search box for courses
         OutlinedTextField(
             value = searchFilter,
             onValueChange = { searchFilter = it },
-            placeholder = { Text("Search course code or name...") },
+            placeholder = { Text("Search course code, title, or department...") },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.Search,
@@ -177,7 +192,7 @@ fun CoursesScreen(
             },
             singleLine = true,
             shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("search_courses_input"),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surface,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surface
@@ -203,14 +218,14 @@ fun CoursesScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = if (selectedTab == 0) "No courses currently enrolled" else "No matching courses found",
+                        text = if (selectedTab == 0) "No courses enrolled yet" else "No matching courses found",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Browse the Department Catalog tab to add your courses.",
+                        text = "Switch to University Catalog to search and enroll in courses.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -222,9 +237,11 @@ fun CoursesScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(filteredList, key = { it.code }) { course ->
+                    val isEnrolled = enrolledCodes.contains(course.code)
                     CourseCard(
                         course = course,
-                        onToggleEnroll = { onToggleEnrollment(course) }
+                        isEnrolled = isEnrolled,
+                        onToggleEnroll = { onToggleEnrollment(course.code) }
                     )
                 }
             }
@@ -234,7 +251,8 @@ fun CoursesScreen(
 
 @Composable
 private fun CourseCard(
-    course: CourseEntity,
+    course: FirestoreCourse,
+    isEnrolled: Boolean,
     onToggleEnroll: () -> Unit
 ) {
     Card(
@@ -272,7 +290,7 @@ private fun CourseCard(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "${course.creditUnits} Credit Units • ${course.level}",
+                        text = "${course.creditUnits} Credits • ${course.level}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp
@@ -280,7 +298,7 @@ private fun CourseCard(
                 }
 
                 // 1-Tap Enroll button
-                if (course.isEnrolled) {
+                if (isEnrolled) {
                     FilledTonalButton(
                         onClick = onToggleEnroll,
                         shape = RoundedCornerShape(20.dp),
@@ -320,7 +338,7 @@ private fun CourseCard(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = course.title,
+                text = course.name,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -337,28 +355,19 @@ private fun CourseCard(
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "${course.lecturer} (Rep: ${course.courseRep})",
+                    text = "${course.lecturerName}${if (course.courseRepName.isNotBlank()) " (Rep: ${course.courseRepName})" else ""}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.LocationOn,
-                    contentDescription = "Default Hall",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "Default Hall: ${course.lectureVenueDefault}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = "Department: ${course.department}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

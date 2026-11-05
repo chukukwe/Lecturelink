@@ -4,10 +4,10 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,13 +18,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CastForEducation
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.MenuBook
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Campaign
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.People
@@ -33,6 +35,7 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -44,28 +47,35 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.R
+import com.example.auth.AuthManager
+import com.example.data.local.DirectoryContactEntity
 import com.example.data.model.UserRole
 import com.example.ui.components.AlarmConfigDialog
+import com.example.ui.components.CreateCourseDialog
 import com.example.ui.components.EditLectureDialog
 import com.example.ui.components.PostNoticeDialog
 import com.example.ui.components.ScheduleLectureDialog
+import com.example.ui.screens.AiAssistantScreen
+import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.CoursesScreen
 import com.example.ui.screens.DirectoryScreen
 import com.example.ui.screens.NoticesScreen
@@ -73,28 +83,92 @@ import com.example.ui.screens.ScheduleScreen
 import com.example.ui.theme.AmberRescheduled
 import com.example.ui.theme.BluePrimary
 import com.example.ui.theme.EmeraldLive
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
+
+@Composable
+fun LectureLinkApp() {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val credentialManager = remember { CredentialManager.create(context) }
+
+    var currentUser by remember { mutableStateOf<FirebaseUser?>(Firebase.auth.currentUser) }
+    var initialRoleName by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(Unit) {
+        val listener = FirebaseAuth.AuthStateListener { auth ->
+            currentUser = auth.currentUser
+        }
+        Firebase.auth.addAuthStateListener(listener)
+        onDispose {
+            Firebase.auth.removeAuthStateListener(listener)
+        }
+    }
+
+    // Attempt silent auto-sign in on launch if not authenticated
+    LaunchedEffect(Unit) {
+        if (currentUser == null) {
+            AuthManager.attemptAutoSignIn(
+                context = context,
+                credentialManager = credentialManager,
+                onAuthSuccess = { currentUser = Firebase.auth.currentUser },
+                onUnauthenticated = {},
+                scope = coroutineScope
+            )
+        }
+    }
+
+    // Auth Gate: if not signed in, show AuthScreen with Google Sign-In
+    if (currentUser == null) {
+        AuthScreen(
+            onAuthSuccess = { user, roleName ->
+                initialRoleName = roleName
+                currentUser = user
+            }
+        )
+    } else {
+        AuthenticatedLectureContent(
+            currentUser = currentUser!!,
+            initialRoleName = initialRoleName,
+            onSignOut = {
+                AuthManager.signOut(
+                    context = context,
+                    credentialManager = credentialManager,
+                    scope = coroutineScope,
+                    onComplete = {
+                        initialRoleName = null
+                        currentUser = null
+                    }
+                )
+            }
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LectureLinkApp(
+private fun AuthenticatedLectureContent(
+    currentUser: FirebaseUser,
+    initialRoleName: String?,
+    onSignOut: () -> Unit,
     viewModel: LectureLinkViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val lectures by viewModel.filteredLectures.collectAsStateWithLifecycle()
-    val courses by viewModel.courses.collectAsStateWithLifecycle()
-    val announcements by viewModel.announcements.collectAsStateWithLifecycle()
-    val directoryContacts by viewModel.directoryContacts.collectAsStateWithLifecycle()
 
-    val editingLecture by viewModel.editingLecture.collectAsStateWithLifecycle()
-    val isSchedulingNew by viewModel.isSchedulingNew.collectAsStateWithLifecycle()
-    val isPostingNotice by viewModel.isPostingNotice.collectAsStateWithLifecycle()
-    val alarmConfigLecture by viewModel.alarmConfigLecture.collectAsStateWithLifecycle()
+    LaunchedEffect(initialRoleName) {
+        initialRoleName?.let { roleName ->
+            val role = when (roleName) {
+                "Lecturer" -> UserRole.LECTURER
+                "Course Rep" -> UserRole.COURSE_REP
+                else -> UserRole.STUDENT
+            }
+            viewModel.switchRole(role)
+        }
+    }
 
-    var currentTab by remember { mutableIntStateOf(0) }
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    // Request notification permission for Android 13+
+    // Permission launcher for Android 13+ push notifications (requested safely after sign-in)
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { _ -> }
@@ -105,7 +179,20 @@ fun LectureLinkApp(
         }
     }
 
-    // Show toast / snackbar whenever userMessage changes
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val lectures by viewModel.filteredLectures.collectAsStateWithLifecycle()
+    val courses by viewModel.courses.collectAsStateWithLifecycle()
+    val announcements by viewModel.announcements.collectAsStateWithLifecycle()
+
+    val editingLecture by viewModel.editingLecture.collectAsStateWithLifecycle()
+    val isSchedulingNew by viewModel.isSchedulingNew.collectAsStateWithLifecycle()
+    val isCreatingCourse by viewModel.isCreatingCourse.collectAsStateWithLifecycle()
+    val isPostingNotice by viewModel.isPostingNotice.collectAsStateWithLifecycle()
+    val alarmConfigLecture by viewModel.alarmConfigLecture.collectAsStateWithLifecycle()
+
+    var currentTab by remember { mutableIntStateOf(0) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
     LaunchedEffect(uiState.userMessage) {
         uiState.userMessage?.let { msg ->
             snackbarHostState.showSnackbar(msg)
@@ -135,7 +222,7 @@ fun LectureLinkApp(
                             }
                         }
                         Spacer(modifier = Modifier.width(10.dp))
-                        androidx.compose.foundation.layout.Column {
+                        Column {
                             Text(
                                 text = "LectureLink",
                                 style = MaterialTheme.typography.titleLarge,
@@ -143,7 +230,7 @@ fun LectureLinkApp(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Direct University Timetable & Alarms",
+                                text = currentUser?.email ?: "Direct Lecture Connection",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 10.sp
@@ -152,7 +239,7 @@ fun LectureLinkApp(
                     }
                 },
                 actions = {
-                    // Current Role Pill Indicator in TopBar
+                    // Active Role Pill
                     val (roleColor, roleIcon) = when (uiState.currentRole) {
                         UserRole.STUDENT -> BluePrimary to Icons.Default.School
                         UserRole.COURSE_REP -> AmberRescheduled to Icons.Default.Campaign
@@ -161,7 +248,7 @@ fun LectureLinkApp(
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = roleColor.copy(alpha = 0.15f),
-                        modifier = Modifier.padding(end = 12.dp)
+                        modifier = Modifier.padding(end = 4.dp)
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -181,6 +268,18 @@ fun LectureLinkApp(
                                 color = roleColor
                             )
                         }
+                    }
+
+                    // Sign-Out button
+                    IconButton(
+                        onClick = onSignOut,
+                        modifier = Modifier.testTag("sign_out_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ExitToApp,
+                            contentDescription = "Sign Out",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -222,13 +321,27 @@ fun LectureLinkApp(
                     modifier = Modifier.testTag("nav_tab_courses")
                 )
 
-                // Tab 2: Directory (Course Reps & Lecturers)
+                // Tab 2: AI & Audio (Gemini Multi-turn Chat & gemini-3.5-transcribe)
                 NavigationBarItem(
                     selected = currentTab == 2,
                     onClick = { currentTab = 2 },
                     icon = {
                         Icon(
-                            imageVector = if (currentTab == 2) Icons.Filled.People else Icons.Outlined.People,
+                            imageVector = if (currentTab == 2) Icons.Filled.AutoAwesome else Icons.Outlined.AutoAwesome,
+                            contentDescription = "AI & Voice"
+                        )
+                    },
+                    label = { Text("AI & Voice", fontSize = 11.sp) },
+                    modifier = Modifier.testTag("nav_tab_ai_voice")
+                )
+
+                // Tab 3: Directory
+                NavigationBarItem(
+                    selected = currentTab == 3,
+                    onClick = { currentTab = 3 },
+                    icon = {
+                        Icon(
+                            imageVector = if (currentTab == 3) Icons.Filled.People else Icons.Outlined.People,
                             contentDescription = "Directory"
                         )
                     },
@@ -236,10 +349,10 @@ fun LectureLinkApp(
                     modifier = Modifier.testTag("nav_tab_directory")
                 )
 
-                // Tab 3: Notices Bulletin
+                // Tab 4: Notices Bulletin
                 NavigationBarItem(
-                    selected = currentTab == 3,
-                    onClick = { currentTab = 3 },
+                    selected = currentTab == 4,
+                    onClick = { currentTab = 4 },
                     icon = {
                         BadgedBox(
                             badge = {
@@ -249,7 +362,7 @@ fun LectureLinkApp(
                             }
                         ) {
                             Icon(
-                                imageVector = if (currentTab == 3) Icons.Filled.Campaign else Icons.Outlined.Campaign,
+                                imageVector = if (currentTab == 4) Icons.Filled.Campaign else Icons.Outlined.Campaign,
                                 contentDescription = "Notices"
                             )
                         }
@@ -279,12 +392,65 @@ fun LectureLinkApp(
                 )
                 1 -> CoursesScreen(
                     courses = courses,
-                    onToggleEnrollment = { viewModel.toggleCourseEnrollment(it) }
+                    enrolledCodes = uiState.enrolledCourseCodes,
+                    currentRole = uiState.currentRole,
+                    onToggleEnrollment = { viewModel.toggleCourseEnrollment(it) },
+                    onCreateCourseClick = { viewModel.openCreateCourse() }
                 )
-                2 -> DirectoryScreen(
-                    contacts = directoryContacts
-                )
-                3 -> NoticesScreen(
+                2 -> AiAssistantScreen()
+                3 -> {
+                    // Directory of verified Reps and Lecturers
+                    val directory = listOf(
+                        DirectoryContactEntity(
+                            id = "rep_1",
+                            name = "David Okafor",
+                            role = "COURSE_REP",
+                            department = "Computer Science",
+                            level = "300 Level",
+                            email = "david.okafor@students.uni.edu.ng",
+                            phone = "+234 803 123 4567",
+                            officeRoom = "Faculty Rep Desk, Block A",
+                            note = "Official Course Rep for CS 300L. Admin of Main Lecture Updates group.",
+                            classGroupLink = "https://chat.whatsapp.com/invite/lecturelink-csc300"
+                        ),
+                        DirectoryContactEntity(
+                            id = "rep_2",
+                            name = "Chioma Nwosu",
+                            role = "COURSE_REP",
+                            department = "Software Engineering",
+                            level = "300 Level",
+                            email = "chioma.nwosu@students.uni.edu.ng",
+                            phone = "+234 814 987 6543",
+                            officeRoom = "Engineering Wing C",
+                            note = "Official Course Rep for SEN 300L. Coordinates with HOD and Lab staff.",
+                            classGroupLink = "https://chat.whatsapp.com/invite/lecturelink-sen300"
+                        ),
+                        DirectoryContactEntity(
+                            id = "lec_1",
+                            name = "Prof. Emmanuel Adeyemi",
+                            role = "LECTURER",
+                            department = "Computer Science",
+                            level = "Faculty Staff",
+                            email = "e.adeyemi@uni.edu.ng",
+                            phone = "+234 803 999 1100",
+                            officeRoom = "Block B, Room 204",
+                            note = "Consultation hours: Mon & Wed 2:00 PM - 4:00 PM."
+                        ),
+                        DirectoryContactEntity(
+                            id = "lec_2",
+                            name = "Dr. Amina Bello",
+                            role = "LECTURER",
+                            department = "Computer Science",
+                            level = "Faculty Staff",
+                            email = "a.bello@uni.edu.ng",
+                            phone = "+234 806 777 2211",
+                            officeRoom = "Block C, Faculty Lab 3 Office",
+                            note = "Head of Database Lab. Office hours: Tue & Thu 11:00 AM - 1:00 PM."
+                        )
+                    )
+                    DirectoryScreen(contacts = directory)
+                }
+                4 -> NoticesScreen(
                     notices = announcements,
                     currentRole = uiState.currentRole,
                     onPostNoticeClick = { viewModel.openPostNotice() }
@@ -310,7 +476,8 @@ fun LectureLinkApp(
                     endTime = endTime,
                     origTime = origTime,
                     broadcast = broadcast,
-                    courseCode = courseCode
+                    courseCode = courseCode,
+                    context = context
                 )
             }
         )
@@ -319,7 +486,7 @@ fun LectureLinkApp(
     if (isSchedulingNew) {
         ScheduleLectureDialog(
             onDismiss = { viewModel.closeScheduleNew() },
-            onSchedule = { code, title, day, start, end, venue, lecName, lecContact, dept, level, broadcast ->
+            onSchedule = { code, title, day, start, end, venue, lecName, dept, level, broadcast ->
                 viewModel.scheduleNewLecture(
                     courseCode = code,
                     courseTitle = title,
@@ -328,11 +495,20 @@ fun LectureLinkApp(
                     endTime = end,
                     venue = venue,
                     lecturerName = lecName,
-                    lecturerContact = lecContact,
                     department = dept,
                     level = level,
-                    broadcast = broadcast
+                    broadcast = broadcast,
+                    context = context
                 )
+            }
+        )
+    }
+
+    if (isCreatingCourse) {
+        CreateCourseDialog(
+            onDismiss = { viewModel.closeCreateCourse() },
+            onCreateCourse = { code, name, dept, lvl, credits, repName ->
+                viewModel.createNewCourse(code, name, dept, lvl, credits, repName)
             }
         )
     }
@@ -345,7 +521,8 @@ fun LectureLinkApp(
                     courseCode = courseCode,
                     title = title,
                     content = content,
-                    urgency = urgency
+                    urgency = urgency,
+                    context = context
                 )
             }
         )
@@ -354,9 +531,10 @@ fun LectureLinkApp(
     alarmConfigLecture?.let { lecture ->
         AlarmConfigDialog(
             lecture = lecture,
+            currentMinutes = uiState.alarmMinutesMap[lecture.id],
             onDismiss = { viewModel.closeAlarmConfig() },
             onToggleAlarm = { isEnabled, minutes, ctx ->
-                viewModel.toggleAlarmSetting(lecture, isEnabled, minutes, ctx)
+                viewModel.setLectureAlarm(lecture, isEnabled, minutes, ctx)
             },
             onTriggerTestNow = { ctx ->
                 viewModel.testTriggerAlarmNow(lecture, ctx)

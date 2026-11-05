@@ -28,7 +28,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.local.AnnouncementEntity
+import com.example.data.firestore.FirestoreAnnouncement
 import com.example.data.model.UrgencyLevel
 import com.example.ui.theme.AmberContainer
 import com.example.ui.theme.AmberRescheduled
@@ -44,7 +44,7 @@ import java.util.Locale
 
 @Composable
 fun NoticeCard(
-    notice: AnnouncementEntity,
+    notice: FirestoreAnnouncement,
     modifier: Modifier = Modifier
 ) {
     val urgency = try {
@@ -60,8 +60,9 @@ fun NoticeCard(
         UrgencyLevel.GENERAL -> Triple(BlueContainer, BluePrimary, Icons.Default.Campaign)
     }
 
+    val date = notice.createdAt?.toDate() ?: Date()
     val timeFormat = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
-    val formattedTime = timeFormat.format(Date(notice.timestampMillis))
+    val formattedTime = timeFormat.format(date)
 
     Card(
         modifier = modifier
@@ -108,7 +109,6 @@ fun NoticeCard(
                     }
                 }
 
-                // Course Code / All
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant
@@ -143,22 +143,23 @@ fun NoticeCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Footer with author verification badge and timestamp
+            // Footer with author verification and timestamp
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val isLec = notice.authorRole.equals("Lecturer", ignoreCase = true)
                     Icon(
-                        imageVector = if (notice.authorRole == "LECTURER") Icons.Default.CastForEducation else Icons.Default.CheckCircle,
+                        imageVector = if (isLec) Icons.Default.CastForEducation else Icons.Default.CheckCircle,
                         contentDescription = "Verified Author",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "${notice.authorName} (${if (notice.authorRole == "LECTURER") "Lecturer" else "Course Rep"})",
+                        text = "${notice.authorName} (${notice.authorRole})",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

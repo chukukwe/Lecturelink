@@ -16,11 +16,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -38,13 +35,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.local.AnnouncementEntity
+import com.example.data.firestore.FirestoreAnnouncement
 import com.example.data.model.UserRole
 import com.example.ui.components.NoticeCard
 
 @Composable
 fun NoticesScreen(
-    notices: List<AnnouncementEntity>,
+    notices: List<FirestoreAnnouncement>,
     currentRole: UserRole,
     onPostNoticeClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -77,7 +74,7 @@ fun NoticesScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Official announcements broadcasted directly to students",
+                        text = "Immediate updates triggered by Lecturers & Course Reps",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -158,12 +155,12 @@ fun NoticesScreen(
             }
         }
 
-        // Post Notice FAB (visible for Course Reps and Lecturers)
-        if (currentRole == UserRole.COURSE_REP || currentRole == UserRole.LECTURER) {
+        // Post Notice FAB (visible for Lecturer and Course Rep)
+        if (currentRole == UserRole.LECTURER || currentRole == UserRole.COURSE_REP) {
             ExtendedFloatingActionButton(
                 onClick = onPostNoticeClick,
                 icon = { Icon(Icons.Default.Campaign, contentDescription = "Broadcast") },
-                text = { Text("Broadcast Notice") },
+                text = { Text("Trigger Notice") },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 16.dp, bottom = 20.dp)
